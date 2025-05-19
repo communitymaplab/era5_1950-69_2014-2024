@@ -1,0 +1,324 @@
+---
+title: "ERA5_20 year comparison"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(tidyverse)
+library(terra)
+library(raster)
+library(ncdf4)
+library(lubridate)
+library(sf)
+library(tmap)
+
+era5_vars<-read_csv("data/era5_vars.csv")
+```
+
+First, this is a python script for data. You have to have GEE set up as an account beforehand to authorize it. You can also use `pip install earthengine-api` on the Python command line to add the `ee` library.
+
+```{python}
+import ee
+import datetime
+
+# Authorize Earth engine (if needed)
+# ee.Authenticate()
+
+# Initialize Earth Engine
+ee.Initialize()
+
+# Define parameters
+variables = [
+    "dewpoint_temperature_2m",
+    "temperature_2m_min",
+    "temperature_2m_max",
+    "temperature_2m",
+    "total_precipitation_sum",
+    "surface_pressure"
+]
+
+# Define date range
+# start_date = datetime.date(1950, 1, 1)
+# end_date = datetime.date(1950, 2, 1)
+
+# Define region (global, you can restrict this to your area of interest)
+region = ee.Geometry.Rectangle([-127, 23, -63, 50])
+
+# Load ERA5-Land Daily Aggregated dataset
+# dataset = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR") \
+#    .filterDate(str(start_date), str(end_date))
+
+# Export function
+def export_image(image, variable_name, date_string):
+    task = ee.batch.Export.image.toDrive(
+        image=image.select(variable_name),
+        description=f"{variable_name}_{date_string}",
+        folder="GEE_ERA5_JanJul_cleanup",
+        fileNamePrefix=f"{variable_name}_{date_string}",
+        region=region,
+        scale=10000,
+        crs="EPSG:4326",
+        maxPixels=1e13
+    )
+    task.start()
+    print(f"Started export: {variable_name}_{date_string}")
+
+# Loop over years and months (January and July)
+for year in range(2021, 2024):
+    for month in [1, 7]:  # January and July
+        start_date = datetime.date(year, month, 1)
+        if month == 1:
+            end_date = datetime.date(year, 2, 1)
+        else:  # July
+            end_date = datetime.date(year, 8, 1)
+
+        # Filter the collection for the month
+        dataset = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR") \
+            .filterDate(str(start_date), str(end_date))
+
+        for var in variables:
+            collection = dataset.select(var)
+            size = collection.size().getInfo()
+
+            for i in range(size):
+                image = ee.Image(collection.toList(size).get(i))
+                timestamp = image.date().format("YYYY-MM-dd").getInfo()
+                export_image(image, var, timestamp)
+```
+
+#List downloaded files and download any that are missing The script above will export your files to a Google Drive folder. If that's different than this project folder, you'll need to move them over first.
+
+Once you've done so, you can list the files and extract information on variable and date.
+
+```{r}
+files<-data.frame(files=list.files(path="data/raw_rasters",
+                  full.names = T, recursive = T))%>%
+  filter(!str_detect(files,".au")) %>%
+  filter(!str_detect(files,".xml")) %>%
+  separate(files,into=c("A","folder","file"),
+           remove=F,sep="/") %>%
+  dplyr::select(-A:-folder) %>%
+  separate(file,into=c("varyear","monthday"),sep="-",
+           extra="merge") %>%
+  mutate(monthday=str_replace(monthday,".tif",""),
+         year=substr(varyear,nchar(varyear)-3,nchar(varyear)),
+         var=substr(varyear,1,nchar(varyear)-5)) %>%
+  separate(monthday,into=c("month","day"),sep="-") %>%
+  dplyr::select(-varyear) %>%
+  mutate(fulldate=paste0(month,"-",day,"-",year),
+         year_range=case_when(year<1955~"1950-1954",
+                              year<1960~"1955-1959",
+                              year<1965~"1960-1964",
+                              year<1970~"1965-1969",
+                              year>2002 & year<2009~"2004-2008",
+                              year<2014~"2009-2013",
+                              year<2019~"2014-2018",
+                              year<2025~"2019-2024",
+                              TRUE~"None"))
+table(files$year_range)
+```
+
+Check for files that are missing. This is done in R.
+
+```{r}
+dates1<-data.frame(dates=seq(as.Date("1950/1/1"), as.Date("1950/1/31"), by = "day")) %>%
+  mutate(md=paste0(substr(dates,6,7),"-",substr(dates,9,10))) %>%
+  expand(md,year=1950:1969) %>%
+  mutate(fulldate=paste0("M",md,"-",year)) %>%
+  dplyr::select(-md,-year) %>%
+  expand(fulldate,unique(files$var)) %>%
+  rename(var=`unique(files$var)`) 
+
+dates1a<-dates1 %>%
+  bind_rows(dates1 %>%
+              mutate(fulldate=str_replace(fulldate,"M01","M07")))
+        
+
+files_check<-dates1a %>%
+  left_join(files %>%
+              mutate(fulldate=paste0("M",fulldate))) %>%
+  filter(is.na(files)) %>%
+  distinct(fulldate)
+
+#Later period
+dates2<-data.frame(dates=seq(as.Date("1950/1/1"), as.Date("1950/1/31"), by = "day")) %>%
+  mutate(md=paste0(substr(dates,6,7),"-",substr(dates,9,10))) %>%
+  expand(md,year=2004:2024) %>%
+  mutate(fulldate=paste0("M",md,"-",year)) %>%
+  dplyr::select(-md,-year) %>%
+  expand(fulldate,unique(files$var)) %>%
+  rename(var=`unique(files$var)`)
+
+dates2a<-dates2 %>%
+  bind_rows(dates2 %>%
+              mutate(fulldate=str_replace(fulldate,"M01","M07")))
+        
+files_check2<-dates2a %>%
+  left_join(files %>%
+              mutate(fulldate=paste0("M",fulldate))) %>%
+  filter(is.na(files)) %>%
+  distinct(fulldate)
+
+files_check_all<-bind_rows(files_check,files_check2) %>%
+  mutate(fulldate=str_replace(fulldate,"M",""))
+
+```
+
+Python script pt 2: cleanup and download missing files in Python
+
+```{python}
+import ee
+import datetime
+import pandas as pd
+
+file_list = r.files_check_all
+
+# Initialize Earth Engine
+ee.Initialize()
+
+# Define parameters
+variables = [
+    "dewpoint_temperature_2m",
+    "temperature_2m_min",
+    "temperature_2m_max",
+    "temperature_2m",
+    "total_precipitation_sum",
+    "surface_pressure"
+]
+
+# Define region as the continental US
+region = ee.Geometry.Rectangle([-127, 23, -63, 50])
+
+# Export function
+def export_image(image, variable_name, date_string):
+    task = ee.batch.Export.image.toDrive(
+        image=image.select(variable_name),
+        description=f"{variable_name}_{date_string}",
+        folder="GEE_ERA5_JanJul_cleanup",
+        fileNamePrefix=f"{variable_name}_{date_string}",
+        region=region,
+        scale=10000,
+        crs="EPSG:4326",
+        maxPixels=1e13
+    )
+    task.start()
+    print(f"Started export: {variable_name}_{date_string}")
+
+# Example DataFrame with dates in 'files' column
+
+# Convert the 'files' column to datetime objects
+file_list['date'] = pd.to_datetime(file_list['fulldate'])
+
+# Loop through each date in the DataFrame
+for date in file_list['date']:
+    start_date = date.strftime('%Y-%m-%d')
+    end_date = (date + pd.Timedelta(days=1)).strftime('%Y-%m-%d')  # One day range
+
+    # Filter the dataset for that specific day
+    dataset = ee.ImageCollection("ECMWF/ERA5_LAND/DAILY_AGGR") \
+        .filterDate(start_date, end_date)
+
+    for var in variables:
+        collection = dataset.select(var)
+        size = collection.size().getInfo()
+
+        for i in range(size):
+            image = ee.Image(collection.toList(size).get(i))
+            timestamp = image.date().format("YYYY-MM-dd").getInfo()
+            export_image(image, var, timestamp)
+            
+```
+
+#Import files
+
+Now we can import files with terra and save them in 5 year batches.
+
+```{r}
+range_sel<-"1950-1954"
+
+nc_create<-function(range_sel){
+  
+  batch_sel<-files %>%
+    filter(year_range==range_sel)
+  
+  var_sel=vars[1]
+  map(vars,function(var_sel){
+    vars_char<-era5_vars %>%
+      filter(var==var_sel)
+    
+    batch_sel_1<-batch_sel %>%
+      filter(var==var_sel & month=="01")
+      
+    vardata_1<-rast(batch_sel_1$files)
+    dates<-mdy((batch_sel_1$fulldate))
+
+    # Add time to raster layers
+    time(vardata_1) <- dates
+    
+    # Write to NetCDF with time metadata for January in range
+    writeCDF(vardata_1,
+           filename = paste0("data/",var_sel,"_jan_",unique(batch_sel_1$year_range),".nc"),
+           varname = vars_char$var,
+           unit = vars_char$var_unit,                     
+           longname = vars_char$var_long,
+           zname = "time",                 # dimension name
+           compression=9,
+           overwrite = TRUE)
+  })
+  
+    map(vars,function(var_sel){
+    vars_char<-era5_vars %>%
+      filter(var==var_sel)
+    
+    batch_sel_1<-batch_sel %>%
+      filter(var==var_sel & month=="07")
+      
+    vardata_1<-rast(batch_sel_1$files)
+    dates<-mdy((batch_sel_1$fulldate))
+
+    # Add time to raster layers
+    time(vardata_1) <- dates
+    
+    # Write to NetCDF with time metadata for JULY
+    writeCDF(vardata_1,
+           filename = paste0("data/",var_sel,"_jul_",unique(batch_sel_1$year_range),".nc"),
+           varname = vars_char$var,
+           unit = vars_char$var_unit,                     
+           longname = vars_char$var_long,
+           zname = "time",                 # dimension name
+           compression=9,
+           overwrite = TRUE)
+  })
+}
+
+map(unique(files$year_range),nc_create)
+```
+
+Manipulate the raster–calculate mean for the period and then do zonal statistics
+
+```{r}
+prcp1_b<-rast("dewpoint_temperature_2m_jul_1950-1954.nc") 
+
+# Calculate mean value across years
+prcp1_mean<-mean(prcp1_b)
+plot(prcp1_mean)
+prcp1_sd<-app(prcp1_b,fun=sd,na.rm=T)
+
+states<-vect(tigris::states())
+states <- project(states, crs(prcp1_mean))
+
+zonal_means <- extract(prcp1_mean, states, fun = mean, na.rm = TRUE)
+zonal_sd<-extract(prcp1_sd, states, fun = mean, na.rm = TRUE)
+
+states$mean_temp<-zonal_means[,2]
+states$mean_sd<-zonal_sd[,2]
+states1<-st_as_sf(states) %>%
+  filter(mean_temp>0)
+
+
+tm_shape(states1)+tm_polygons("mean_temp")
+tm_shape(states1)+tm_polygons("mean_sd")
+```
