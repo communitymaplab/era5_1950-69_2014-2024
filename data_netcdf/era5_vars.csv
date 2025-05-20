@@ -1,0 +1,7 @@
+var,var_unit,var_long
+dewpoint_temperature_2m        ,K,Dewpoint temperature (2m)
+temperature_2m_min,K,Min temperature (2m)
+ surface_pressure,Pa,Surface pressure
+temperature_2m,K,Daily mean temperature (2m)
+temperature_2m_max     ,K,Max temperature (2m)
+total_precipitation_sum,m,Total precipitation
