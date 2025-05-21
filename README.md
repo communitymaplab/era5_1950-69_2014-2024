@@ -11,4 +11,4 @@ This data contains daily ERA5 climate data for selected variables over the conti
 
 These data are extracted from [Google Earth Engine's copy of the ERA5 dataset](https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_LAND_DAILY_AGGR), aggregated to daily values. We used the Google Earth Engine API to extract rasters for each day in the selected time frames.
 
-The primary script used to create these datasdets is `files_20yr_avgs.qmd`. It contains R/Python code from loading years of interest through creating NetCDF4 versions of the data. The raw rasters are also included in the data folder for reference. The NetCDF files can be loaded into R as a raster stack using `terra::rast()` and zonal or other statistics can be done from that format.
+The primary script used to create these datasdets is `files_20yr_avgs.qmd`. It contains R/Python code from loading years of interest through creating NetCDF4 versions of the data. The NetCDF files can be loaded into R as a raster stack using `terra::rast()` and zonal or other statistics can be done from that format.
