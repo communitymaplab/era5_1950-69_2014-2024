@@ -1,6 +1,6 @@
 # ERA5 data: 1950-69 and 2004-2024
 
-This data contains daily ERA5 climate data for selected variables over the continental US, for both January and June in 1950-1969 and 2014-2024. The following daily variables are included, calculated as a mean of hourly data:
+This data contains daily ERA5 climate data for selected variables over the continental US, for both January and June in 1950-1969 and 2014-2024. The following daily variables are included:
 
 * **temperature_2m** (Kelvin): Temperature of air at 2m above the surface of land, sea or in-land waters. 2m temperature is calculated by interpolating between the lowest model level and the Earth's surface, taking account of the atmospheric conditions. (degrees Kelvin)
 * **temperature_2m_min** (Kelvin): Daily minimum value for temperature_2m value (degrees Kelvin)
